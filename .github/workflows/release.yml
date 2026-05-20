@@ -7,10 +7,20 @@ on:
 
 jobs:
   build:
-    name: Build and publish release
-    runs-on: ubuntu-latest
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
+
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            os: linux
+            targets: "linux/amd64 linux/arm64"
+          - runner: macos-latest
+            os: darwin
+            targets: "darwin/amd64 darwin/arm64"
 
     steps:
       - uses: actions/checkout@v4
@@ -22,10 +32,34 @@ jobs:
       - name: Build binaries
         run: |
           mkdir -p dist
-          GOOS=linux  GOARCH=amd64 go build -ldflags "-X 'main.BuildVersion=${{ github.ref_name }}'" -o dist/timecard-linux-amd64  ./main.go
-          GOOS=linux  GOARCH=arm64 go build -ldflags "-X 'main.BuildVersion=${{ github.ref_name }}'" -o dist/timecard-linux-arm64  ./main.go
-          GOOS=darwin GOARCH=amd64 go build -ldflags "-X 'main.BuildVersion=${{ github.ref_name }}'" -o dist/timecard-darwin-amd64 ./main.go
-          GOOS=darwin GOARCH=arm64 go build -ldflags "-X 'main.BuildVersion=${{ github.ref_name }}'" -o dist/timecard-darwin-arm64 ./main.go
+          for target in ${{ matrix.targets }}; do
+            GOOS=${target%/*}
+            GOARCH=${target#*/}
+            go build -ldflags "-X 'main.BuildVersion=${{ github.ref_name }}'" \
+              -o "dist/timecard-${GOOS}-${GOARCH}" ./main.go
+          done
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.os }}
+          path: dist/
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
 
       - name: Create GitHub Release
         env:
